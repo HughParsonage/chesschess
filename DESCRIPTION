@@ -1,6 +1,6 @@
-Package: rpkg
-Title: Title
-Version: 0.0.0
+Package: chesschess
+Title: Chess Engine
+Version: 0.0.1
 Authors@R: 
     person(given = "Hugh",
            family = "Parsonage",
@@ -9,5 +9,4 @@ Authors@R:
 Description: ..
 License: GPL-2
 Encoding: UTF-8
-
-
+RoxygenNote: 7.2.0

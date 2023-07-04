@@ -36,4 +36,6 @@ for (R_xlen_t i = 0; i < N; ++i) {                             \
 #endif
 
 
+bool liesOnSameDiag(unsigned int p1, unsigned int p2);
+
 #endif
