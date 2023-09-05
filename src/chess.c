@@ -926,8 +926,11 @@ int generateQueenMoves(const Chessboard* board, int row, int col, Move* moves) {
       if (!dirs_avbl[dir]) {
         continue;
       }
-      int toRow = toRows[dir];
-      int toCol = toCols[dir];
+      int toRow = row + toRows[dir];
+      int toCol = col + toCols[dir];
+      if (toRow < 0 || toRow >= 8 || toCol < 0 || toCol >= 8) {
+        continue;
+      }
       if (board->board[toRow][toCol].piece != EMPTY && board->board[toRow][toCol].color == c) {
         dirs_avbl[dir] = 0;
         continue;
