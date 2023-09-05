@@ -1,6 +1,9 @@
 #include "chess.h"
 
-#define MAX_MOVES 1023
+#define MAX_MOVES 5050
+#define LONG_GAME 255
+
+#define OPPCOLOR (sideToMove == WHITE ? BLACK : WHITE)
 
 typedef enum {
   EMPTY,
@@ -23,20 +26,72 @@ typedef struct {
 } Square;
 
 typedef struct {
+  unsigned int fromRow : 3;
+  unsigned int fromCol : 3;
+  unsigned int toRow : 3;
+  unsigned int toCol : 3;
+  Piece toPiece; // relevant for promotions and to signify starting position
+} Move;
+
+typedef struct {
   Square board[8][8];
-  Color currentTurn;
   unsigned int WhiteKing : 6; // duplicately record the kings' positions
   unsigned int BlackKing : 6;
   bool WhiteMayCastle : 1;
   bool BlackMayCastle: 1;
+  Move lastMove;
 } Chessboard;
 
+unsigned int pos_hash(Chessboard * B) {
+  unsigned int o = 0;
+  // unsigned int tbl[64][7] = {0};
+
+  for (int r = 0; r < 8; ++r) {
+    for (int c = 0; c < 8; ++c) {
+      Piece PP = B->board[r][c].piece;
+      bool is_white = B->board[r][c].color;
+      o += 2 * (PP);
+    }
+  }
+  return o;
+}
+
+
+
 typedef struct {
-  int fromRow;
-  int fromCol;
-  int toRow;
-  int toCol;
-} Move;
+  unsigned int P : 3;
+  unsigned int Q : 3;
+  unsigned int R : 3;
+  unsigned int N : 3;
+  unsigned int B_light : 3;
+  unsigned int B_dark : 3;
+  unsigned int bishop_pair : 1;
+} Material;
+
+typedef struct {
+  Chessboard Board;
+  Color sideToMove;
+  Move Moves[LONG_GAME][2];
+  uint16_t white_material[LONG_GAME];
+  uint16_t black_material[LONG_GAME];
+  unsigned int move : 8;
+  unsigned int whiteLostCastlingRights : 8;
+  unsigned int blackLostCastlingRights : 8;
+  unsigned int last_pawn_move : 8;
+} Game;
+
+
+typedef struct {
+  Chessboard Board;
+  Color sideToMove;
+  Move Moves[MAX_MOVES][2];
+  uint16_t white_material[MAX_MOVES];
+  uint16_t black_material[MAX_MOVES];
+  unsigned int move : 13;
+  unsigned int whiteLostCastlingRights : 13;
+  unsigned int blackLostCastlingRights : 13;
+  unsigned int last_pawn_move : 13;
+} LongGame;
 
 unsigned int p2row(unsigned int x) {
   return x >> 3;
@@ -48,6 +103,10 @@ unsigned int p2col(unsigned int x) {
 
 unsigned int rowcol2p(int r, int c) {
   return (r << 3) + c;
+}
+
+bool is_light_square(int r, int c) {
+  return (r + c) & 1;
 }
 
 void print_the_piece(Piece P) {
@@ -63,6 +122,59 @@ void print_the_piece(Piece P) {
 
 void print_piece(Chessboard * board, int row, int col) {
   print_the_piece(board->board[row][col].piece);
+}
+
+void determine_material(Material * M, const Chessboard * board, Color C) {
+  for (int r = 0; r < 8; ++r) {
+    for (int c = 0; c < 8; ++c) {
+      if (board->board[r][c].piece == EMPTY || board->board[r][c].color != C) {
+        continue;
+      }
+      switch(board->board[r][c].piece) {
+      case PAWN:
+        M->P++;
+        break;
+      case QUEEN:
+        M->Q++;
+        break;
+      case ROOK:
+        M->R++;
+        break;
+      case BISHOP:
+        if (is_light_square(r, c)) {
+          M->B_light++;
+        } else {
+          M->B_dark++;
+        }
+        break;
+      case KNIGHT:
+        M->N++;
+      default:
+        continue;
+      }
+    }
+  }
+  M->bishop_pair = M->B_dark && M->B_light;
+}
+
+unsigned int total_material(Material * M) {
+  // From AlphaZero because why not, the piece values relative to pawn = 100
+  unsigned int p = 100;
+  unsigned int n = 305;
+  unsigned int b = 333;
+  unsigned int bb = 50; // bishop pair
+  unsigned int q = 950;
+  unsigned int r = 563;
+
+  unsigned int o = 0; // maximum is 60800 (all queens)
+  o += p * (M->P);
+  o += n * (M->N);
+  o += q * (M->Q);
+  o += r * (M->R);
+  o += b * (M->B_dark);
+  o += b * (M->B_light);
+  o += bb * (M->bishop_pair);
+  return o;
 }
 
 void blankBoard(Chessboard * board) {
@@ -118,20 +230,99 @@ void startingPosition(Chessboard* board) {
 
   board->WhiteMayCastle = 1;
   board->BlackMayCastle = 1;
+
+  board->lastMove.fromCol = 0;
+  board->lastMove.fromRow = 0;
+  board->lastMove.toCol = 0;
+  board->lastMove.toRow = 0;
+  board->lastMove.toPiece = EMPTY;
 }
 
+void initialize_Game(Game * G) {
+  if (G == NULL) {
+    return;
+  }
+  G->move = 0;
+  G->last_pawn_move = 0;
+  startingPosition(&(G->Board));
+  G->sideToMove = WHITE;
+  memset(G->Moves, 0, LONG_GAME * sizeof(Move));
+  memset(G->black_material, 0, LONG_GAME * sizeof(Material));
+  memset(G->white_material, 0, LONG_GAME * sizeof(Material));
+  Material M;
+  determine_material(&M, &(G->Board), WHITE);
+  G->white_material[0] = total_material(&M);
+  G->black_material[0] = total_material(&M);
+  G->whiteLostCastlingRights = LONG_GAME;
+  G->blackLostCastlingRights = LONG_GAME;
+}
 
-
-
-
-
+//
+void colsMayEnPassant(int cols[8], const Chessboard * board) {
+  Move lastMove = board->lastMove;
+  memset(cols, 0, 8 * sizeof(int));
+  if (lastMove.fromRow != 1 && lastMove.fromRow != 6) {
+    return;
+  }
+  if (lastMove.fromRow == 1 && (lastMove.toRow != 3 || lastMove.toCol != lastMove.fromCol)) {
+    return;
+  }
+  if (lastMove.fromRow == 6 && (lastMove.toRow != 4 || lastMove.toCol != lastMove.fromCol)) {
+    return;
+  }
+  if (board->board[lastMove.toRow][lastMove.toCol].piece != PAWN) {
+    return;
+  }
+  if (lastMove.toCol == 0) {
+    if (lastMove.toRow == 3) {
+      if (board->board[4][1].piece == PAWN && board->board[4][1].color == BLACK) {
+        cols[1] = 1;
+        return;
+      }
+    } else {
+      if (board->board[3][1].piece == PAWN && board->board[3][1].color == WHITE) {
+        cols[1] = 1;
+        return;
+      }
+    }
+  }
+  if (lastMove.toCol == 7) {
+    if (lastMove.toRow == 3) {
+      if (board->board[4][6].piece == PAWN && board->board[4][6].color == BLACK) {
+        cols[6] = 1;
+        return;
+      }
+    } else {
+      if (board->board[6][1].piece == PAWN && board->board[6][1].color == WHITE) {
+        cols[6] = 1;
+        return;
+      }
+    }
+  }
+  int c = lastMove.toCol;
+  if (lastMove.toRow == 3) {
+    if (board->board[4][c - 1].piece == PAWN && board->board[4][c - 1].color == BLACK) {
+      cols[c - 1] = 1;
+    }
+    if (board->board[4][c + 1].piece == PAWN && board->board[4][c + 1].color == BLACK) {
+      cols[c + 1] = 1;
+    }
+  } else {
+    if (board->board[3][c - 1].piece == PAWN && board->board[3][c - 1].color == WHITE) {
+      cols[c - 1] = 1;
+    }
+    if (board->board[3][c + 1].piece == PAWN && board->board[3][c + 1].color == WHITE) {
+      cols[c + 1] = 1;
+    }
+  }
+}
 
 bool isMoveLegal(const Chessboard* board, const Move* move) {
   // Get the piece at the source square
   Square sourceSquare = board->board[move->fromRow][move->fromCol];
 
   // Check if the source square is empty or the piece color doesn't match the current turn
-  if (sourceSquare.piece == EMPTY || sourceSquare.color != board->currentTurn) {
+  if (sourceSquare.piece == EMPTY) {
     return false;
   }
 
@@ -139,7 +330,7 @@ bool isMoveLegal(const Chessboard* board, const Move* move) {
   Square destinationSquare = board->board[move->toRow][move->toCol];
 
   // Check if the destination square contains a piece of the same color
-  if (destinationSquare.piece != EMPTY && destinationSquare.color == board->currentTurn) {
+  if (destinationSquare.piece != EMPTY) {
     return false;
   }
 
@@ -277,9 +468,6 @@ bool canPieceAttackSquare(const Chessboard* board, int pieceRow, int pieceCol, i
     // Check if there are any pieces obstructing the path
     while (row != toRow || col != toCol) {
       if (board->board[row][col].piece != EMPTY) {
-        Rprintf("row,col = %d,%d\n", row, col);
-        print_piece(board, row, col);
-
         return false; // Obstruction in the path
       }
       row += rowDirection;
@@ -1089,13 +1277,310 @@ unsigned int string2p(const char * x) {
   error("Could not determine position from string '%s'", x);
 }
 
-void setup_board(Chessboard * board, SEXP x, SEXP y, SEXP Start) {
+Piece string2Piece(const char * x) {
+  switch(x[0]) {
+  case 'K':
+    return KING;
+  case 'Q':
+    return QUEEN;
+  case 'B':
+    return BISHOP;
+  case 'N':
+    return KNIGHT;
+  case 'R':
+    return ROOK;
+  default:
+    return PAWN;
+  }
+}
+
+unsigned int PawnBoard2p(const Color C, const Chessboard * board, unsigned int to_p, int fromRow, int fromCol, bool capture) {
+  int to_row = p2row(to_p);
+  int to_col = p2col(to_p);
+  if (fromRow > 0 && fromCol >= 0) {
+    return rowcol2p(fromRow, fromCol);
+  }
+  switch(C) {
+  case WHITE:
+    switch(to_row) {
+    case 2:
+      if (capture) {
+        if (fromRow >= 0) {
+          // just need to determine column, which will be the only one with a pawn
+          if (to_col > 0 &&
+              board->board[fromRow][to_col - 1].piece == PAWN &&
+              board->board[fromRow][to_col - 1].color == WHITE) {
+            return rowcol2p(fromRow, to_col - 1);
+          }
+          if (to_col < 7 &&
+              board->board[fromRow][to_col + 1].piece == PAWN &&
+              board->board[fromRow][to_col + 1].color == WHITE) {
+            return rowcol2p(fromRow, to_col + 1);
+          }
+        } else {
+          // column is determined
+          return rowcol2p(to_row - 1, fromRow);
+        }
+      } else {
+
+      }
+    }
+    break;
+  // case BLACK:
+  }
+}
+
+unsigned int PieceBoard2p(const Piece P, const Color C, const Chessboard * board, unsigned int to_p) {
+
+  int n = 0;
+  uint16_t o[8] = {0};
+  for (int r = 0; r < 8; ++r) {
+    for (int c = 0; r < 8; ++c) {
+      if (board->board[r][c].piece == P &&
+          board->board[r][c].color == C) {
+        o[n++] = rowcol2p(r, c);
+      }
+    }
+  }
+  if (n == 0) {
+    error("Could not find piece on board.");
+  }
+  if (n == 1) {
+    return o[0];
+  }
+  int to_row = p2row(to_p);
+  int to_col = p2col(to_p);
+  for (int k = 0; k < n; ++k) {
+    unsigned int from_p = o[k];
+    int from_row = p2row(from_p);
+    int from_col = p2col(from_p);
+    if (canPieceAttackSquare(board, from_row, from_col, to_row, to_col)) {
+      return from_p;
+    }
+
+  }
+
+
+  if (P == BISHOP) {
+    if (liesOnSameDiag(to_p, o[0])) {
+
+    }
+  }
+
+
+
+
+}
+
+bool is_1to8(char x) {
+  return x >= '1' && x <= '8';
+}
+
+bool is_abcdefgh(char x) {
+  return x >= 'a' && x <= 'h';
+}
+
+bool is_algebraic_position(char x) {
+  return is_1to8(x) || is_abcdefgh(x);
+}
+
+bool is_terminal_char(char x) {
+  return x == '+' || x == '!' || x == '?' || x == '#' || x == '=';
+}
+
+void validate_algebraic_string(const char * x) {
+  int j = 0;
+  if (isupper(x[0])) {
+    if (x[0] != 'R' && x[0] != 'N' && x[0] != 'B' && x[0] != 'Q' && x[0] != 'K') {
+      error("First char of x was uppercase but not a valid piecename.");
+    }
+    j = 1;
+  } else {
+    // pawn cannot move to outer rows
+    if (x[2] <= '1' || x[2] >= '8') {
+      error("Invalid row for pawn move.");
+    }
+  }
+  if (!is_algebraic_position(x[j++])) {
+    error("First character not a position.");
+  }
+
+  while (x[j] != '\0') {
+    if (!is_algebraic_position(x[j])) {
+      if (is_terminal_char(x[j]))  {
+        return;
+      }
+      error("Invalid string '%s' at position %d.", x, j);
+    }
+    ++j;
+    if (x[j] == 'x') {
+      ++j;
+      break;
+    }
+  }
+  while (x[j] != '\0') {
+    if (!is_algebraic_position(x[j])) {
+      if (is_terminal_char(x[j]))  {
+        return;
+      }
+      error("Invalid string '%s' at position %d.", x, j);
+    }
+    ++j;
+  }
+
+
+}
+
+Move string2move(const char * x, int n, const Chessboard * board, Color sideToMove) {
+  Move M;
+  validate_algebraic_string(x);
+  unsigned int p = string2p(x);
+  switch(n) {
+  case 2: {
+    M.toCol = x[1] - '1';
+    M.toRow = x[0] - 'a';
+    M.fromCol = M.toCol;
+    M.toPiece = PAWN;
+    // pawn has simply moved
+    if (sideToMove == WHITE) {
+      if (board->board[M.toCol][M.toRow - 1].piece == PAWN &&
+          board->board[M.toCol][M.toRow - 1].color == WHITE) {
+        M.fromRow = M.toRow - 1;
+        return M;
+      }
+      if (board->board[M.toCol][M.toRow - 2].piece == PAWN &&
+          board->board[M.toCol][M.toRow - 2].color == WHITE &&
+          board->board[M.toCol][M.toRow - 1].piece == EMPTY) {
+        M.fromRow = M.toRow - 2;
+        return M;
+      }
+      error("String '%s' appears to be a pawn move but not valid.", x);
+
+    } else {
+      if (board->board[M.toCol][M.toRow + 1].piece == PAWN &&
+          board->board[M.toCol][M.toRow + 1].color == WHITE) {
+        M.fromRow = M.toRow + 1;
+        return M;
+      }
+      if (board->board[M.toCol][M.toRow + 2].piece == PAWN &&
+          board->board[M.toCol][M.toRow + 2].color == WHITE &&
+          board->board[M.toCol][M.toRow + 1].piece == EMPTY) {
+        M.fromRow = M.toRow + 2;
+        return M;
+      }
+      error("String '%s' appears to be a pawn move but not valid.", x);
+    }
+  }
+  case 3:
+    if (!isupper(x[0])) {
+      // should be a pawn something (check, mate, blunder etc)
+      if (!is_terminal_char(x[2]))  {
+        error("String '%s' was length 3 but did not have expected terminal char", x);
+      }
+      M.toPiece = PAWN;
+      M.toCol = x[0] - '1';
+      M.toRow = x[1] - 'a';
+      M.fromCol = M.toCol;
+      if (x[2] == '+' || x[2] == '#') {
+        // check king in Check
+        bool king_in_check = false;
+        int lh_target = M.toCol - 1;
+        int rh_target = M.toCol + 1;
+        int rr_target = (sideToMove == WHITE) ? (M.toRow + 1) : (M.toRow - 1);
+        if (lh_target >= 0 &&
+            board->board[rr_target][lh_target].piece == KING &&
+            board->board[rr_target][lh_target].color != sideToMove) {
+          king_in_check = true;
+        }
+        if (rh_target <= 7 &&
+            board->board[rr_target][lh_target].piece == KING &&
+            board->board[rr_target][lh_target].color != sideToMove) {
+          king_in_check = true;
+        }
+        //
+        if (!king_in_check) {
+          Chessboard tempBoard;
+          memcpy(&tempBoard, board, sizeof(Chessboard));
+          tempBoard.board[M.toRow][M.toCol].piece = PAWN;
+          tempBoard.board[M.toRow][M.toCol].color = sideToMove;
+
+
+          if (board->board[M.toCol][M.toRow - 1].piece == PAWN &&
+              board->board[M.toCol][M.toRow - 1].piece == sideToMove)  {
+            tempBoard.board[M.toCol][M.toRow - 1].piece = EMPTY;
+            if (isKingInCheck(&tempBoard, OPPCOLOR)) {
+              king_in_check = true;
+            }
+          } else if (board->board[M.toCol][M.toRow - 2].piece == PAWN &&
+            board->board[M.toCol][M.toRow - 2].piece == sideToMove &&
+            board->board[M.toCol][M.toRow - 1].piece == EMPTY)  {
+            tempBoard.board[M.toCol][M.toRow - 2].piece = PAWN;
+            if (isKingInCheck(&tempBoard, OPPCOLOR)) {
+              king_in_check = true;
+            }
+          } else {
+            error("Unexpected move '%s'.", x);
+          }
+
+
+
+        }
+      }
+
+      if (sideToMove == WHITE) {
+        if (board->board[M.toCol][M.toRow - 1].piece == PAWN &&
+            board->board[M.toCol][M.toRow - 1].color == WHITE) {
+          M.fromRow = M.toRow - 1;
+          return M;
+        }
+        if (board->board[M.toCol][M.toRow - 2].piece == PAWN &&
+            board->board[M.toCol][M.toRow - 2].color == WHITE &&
+            board->board[M.toCol][M.toRow - 1].piece == EMPTY) {
+          M.fromRow = M.toRow - 2;
+          return M;
+        }
+        error("String '%s' appears to be a pawn move but not valid.", x);
+
+      } else {
+        if (board->board[M.toCol][M.toRow + 1].piece == PAWN &&
+            board->board[M.toCol][M.toRow + 1].color == WHITE) {
+          M.fromRow = M.toRow + 1;
+          return M;
+        }
+        if (board->board[M.toCol][M.toRow + 2].piece == PAWN &&
+            board->board[M.toCol][M.toRow + 2].color == WHITE &&
+            board->board[M.toCol][M.toRow + 1].piece == EMPTY) {
+          M.fromRow = M.toRow + 2;
+          return M;
+        }
+        error("String '%s' appears to be a pawn move but not valid.", x);
+      }
+
+
+    } else {
+      // piece
+      Piece P = string2Piece(x);
+      unsigned int p = string2p(x);
+      M.toRow = p2row(p);
+      M.toCol = p2col(p);
+      // p = PieceBoard2p(P, sideToMove, board);
+      M.fromRow = p2row(p);
+      M.fromCol = p2col(p);
+
+
+
+    }
+  }
+
+  return M;
+}
+
+void setup_board(Chessboard * board, SEXP x, SEXP y, SEXP Start, Color sideToMove) {
   const int start = asInteger(Start);
   if (start == 0) {
     blankBoard(board);
     board->WhiteMayCastle = 0;
     board->BlackMayCastle = 0;
-    board->currentTurn = WHITE;
   } else if (start == 1) {
     startingPosition(board);
   } else {
@@ -1184,16 +1669,90 @@ void setup_board(Chessboard * board, SEXP x, SEXP y, SEXP Start) {
       error("Could not determine piece from string '%s'.", xi);
     }
   }
-  if (isntValidBoard(board, WHITE)) {
-    error("isntValidBoard[%d]", isntValidBoard(board, WHITE));
+  if (isntValidBoard(board, sideToMove)) {
+    error("isntValidBoard[%d]", isntValidBoard(board, sideToMove));
   }
 }
 
-SEXP C_isCheckmate(SEXP x, SEXP y, SEXP Start) {
+SEXP C_isCheckmate(SEXP x, SEXP y, SEXP Start, SEXP WhiteToMove) {
+  bool white_to_move = asLogical(WhiteToMove);
+  Color sideToMove = white_to_move ? WHITE : BLACK;
   Chessboard Board;
-  setup_board(&Board, x, y, Start);
-  return ScalarLogical(isCheckmate(&Board, WHITE));
+  setup_board(&Board, x, y, Start, sideToMove);
+  return ScalarLogical(isCheckmate(&Board, sideToMove));
 }
+
+
+
+bool threefold_repetition(Game * G) {
+  unsigned int move = G->move;
+  unsigned int w_material = G->white_material[move];
+  unsigned int b_material = G->black_material[move];
+
+  int n_repetitions = 1;
+  while (--move > G->last_pawn_move) {
+    if (w_material != G->white_material[move] || b_material != G->black_material[move]) {
+      break;
+    }
+
+
+
+  }
+  return n_repetitions >= 3;
+}
+
+bool insufficient_material(Material * M_white, Material * M_black) {
+  // if any pawns, queens, or rooks on the board
+  if (M_white->P || M_black->P || M_white->Q || M_black->Q || M_white->R || M_black->R) {
+    return false;
+  }
+  // bishop pair is not insufficient
+  if ((M_white->B_dark && M_white->B_light) || (M_black->B_dark && M_black->B_light)) {
+    return false;
+  }
+
+  // knight and king v lone king
+  if (M_white->B_dark == 0 && M_white->B_light == 0 && M_white->N <= 1 && M_black->B_dark == 0 && M_black->B_light == 0 && M_black->N == 0) {
+    return true;
+  }
+  if (M_black->B_dark == 0 && M_black->B_light == 0 && M_black->N <= 1 && M_white->B_dark == 0 && M_white->B_light == 0 && M_white->N == 0) {
+    return true;
+  }
+  if (M_white->B_dark == 1 && M_black->B_dark == 1 && M_white->N == 0 && M_black->N == 0) {
+    return true;
+  }
+  if (M_white->B_light == 1 && M_black->B_light == 1 && M_white->N == 0 && M_black->N == 0) {
+    return true;
+  }
+
+  return false; // unusual position
+}
+
+bool hasInsufficientMaterial(const Chessboard * board) {
+  Material W;
+  memset(&W, 0, sizeof(W));
+  determine_material(&W, board, WHITE);
+  Material B;
+  memset(&B, 0, sizeof(B));
+  determine_material(&B, board, BLACK);
+  return insufficient_material(&W, &B);
+}
+
+bool isDraw(const Chessboard * board, Color sideToMove) {
+  if (hasInsufficientMaterial(board)) {
+    return true;
+  }
+  Move possibleMoves[MAX_MOVES];
+  int numPossibleMoves = generateMoves(board, sideToMove, possibleMoves);
+  if (numPossibleMoves == 0 && !isKingInCheck(board, sideToMove)) {
+    // stalemate
+    return true;
+  }
+  return false;
+}
+
+
+
 
 
 
