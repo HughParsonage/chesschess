@@ -1336,8 +1336,10 @@ unsigned int PawnBoard2p(const Color C, const Chessboard * board, unsigned int t
       }
     }
     break;
-  // case BLACK:
+  case BLACK:
+    return 0;
   }
+  return 55;
 }
 
 unsigned int PieceBoard2p(const Piece P, const Color C, const Chessboard * board, unsigned int to_p) {
@@ -1378,7 +1380,7 @@ unsigned int PieceBoard2p(const Piece P, const Color C, const Chessboard * board
   }
 
 
-
+return 55;
 
 }
 

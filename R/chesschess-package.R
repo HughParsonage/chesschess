@@ -1,4 +1,5 @@
 #' @useDynLib chesschess, .registration=TRUE
+#' @importFrom utils packageName
 #' @keywords internal
 "_PACKAGE"
 

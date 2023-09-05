@@ -2,4 +2,5 @@
 
 export(enpassant)
 export(is_checkmate)
+importFrom(utils,packageName)
 useDynLib(chesschess, .registration=TRUE)
