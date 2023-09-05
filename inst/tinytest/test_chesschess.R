@@ -10,12 +10,17 @@ expect_true(is_checkmate(c("Kb4", "b5", "Qa3", "Bf4", "Rh6", "Qd8"),
                          white_to_move = TRUE,
                          last_move = "c6c5"))
 
-
-
 expect_false(is_checkmate(c("Kb4", "b5", "Qa3", "Bf4", "Rh6", "Qd8"),
                           c("Kb7", "Bg7", "b6", "c5", "Rd5", "Nb2", "Bc2"),
                           white_to_move = TRUE,
                           last_move = "c7c5"))
+
+# Test Queen pinned
+expect_true(is_checkmate(c("Qf8", "Qa8", "Qa5", "Ka4"),
+                         c("Qc8", "Qc7", "d7", "Kd8"),
+                         start = 0L,
+                         white_to_move = FALSE,
+                         last_move = "Qf1f8"))
 
 expect_equal(enpassant(c("e5", "Ke1"), c("f5", "Ke7"), start = 0L, last_move = "f7f5"),
              5)
