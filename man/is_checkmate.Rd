@@ -4,7 +4,13 @@
 \alias{is_checkmate}
 \title{Is this checkmate?}
 \usage{
-is_checkmate(x, y, start = 0L, white_to_move = TRUE)
+is_checkmate(
+  x,
+  y,
+  start = 0L,
+  white_to_move = TRUE,
+  last_move = ifelse(white_to_move, y[1], x[1])
+)
 }
 \arguments{
 \item{x}{Positions of white, given as a character vector}
@@ -15,6 +21,10 @@ is_checkmate(x, y, start = 0L, white_to_move = TRUE)
 or \code{1} meaning the starting positions plus \code{x, y}}
 
 \item{white_to_move}{Is white to move (i.e. is white in checkmate?)}
+
+\item{last_move}{A string in quasi-algebraic notation, differing in that both
+the destination and origin positions must be given, e.g. e2e4, Qa1a7. Defaults
+to the first position of x and y but unlikely to be correct in general.}
 }
 \description{
 Is this checkmate?

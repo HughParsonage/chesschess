@@ -2,5 +2,28 @@
 # Placeholder with simple test
 expect_equal(1 + 1, 2)
 
-expect_true(chesschess:::is_checkmate(c("Kc1", "Ra7", "Ra8"), "Kc8", white_to_move = FALSE))
+expect_true(chesschess:::is_checkmate(c("Kc1", "Rh7", "Ra8"), "Kc8", white_to_move = FALSE, last_move = "Ra4a8"))
 
+# Complex position, only if not en passant
+expect_true(is_checkmate(c("Kb4", "b5", "Qa3", "Bf4", "Rh6", "Qd8"),
+                         c("Kb7", "Bg7", "b6", "c5", "Rd5", "Nb2", "Bc2"),
+                         white_to_move = TRUE,
+                         last_move = "c6c5"))
+
+
+
+expect_false(is_checkmate(c("Kb4", "b5", "Qa3", "Bf4", "Rh6", "Qd8"),
+                          c("Kb7", "Bg7", "b6", "c5", "Rd5", "Nb2", "Bc2"),
+                          white_to_move = TRUE,
+                          last_move = "c7c5"))
+
+expect_equal(enpassant(c("e5", "Ke1"), c("f5", "Ke7"), start = 0L, last_move = "f7f5"),
+             5)
+expect_equal(enpassant(c("e5", "Ke1"), c("f5", "Ke7", "d5"), start = 0L, last_move = "f7f5"),
+             5)
+expect_equal(enpassant(c("e5", "Ke1"), c("f5", "Ke7", "d5"), start = 0L, last_move = "d7d5"),
+             -5)
+expect_equal(enpassant(c("a5", "Ke1"), c("f5", "Ke7", "b5"), start = 0L, last_move = "b7b5"),
+             1)
+expect_equal(enpassant(c("h5", "Ke1"), c("f5", "Ke7", "g5"), start = 0L, last_move = "g7g5"),
+             -8)

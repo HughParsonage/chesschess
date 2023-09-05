@@ -257,7 +257,7 @@ void initialize_Game(Game * G) {
   G->blackLostCastlingRights = LONG_GAME;
 }
 
-//
+// returns cols[j] = 1 if pawn in column j can take to the right, = -1 can take to left, 0 cannot take enpassant
 void colsMayEnPassant(int cols[8], const Chessboard * board) {
   Move lastMove = board->lastMove;
   memset(cols, 0, 8 * sizeof(int));
@@ -274,14 +274,14 @@ void colsMayEnPassant(int cols[8], const Chessboard * board) {
     return;
   }
   if (lastMove.toCol == 0) {
-    if (lastMove.toRow == 3) {
-      if (board->board[4][1].piece == PAWN && board->board[4][1].color == BLACK) {
-        cols[1] = 1;
+    if (lastMove.toRow == 4) {
+      if (board->board[4][1].piece == PAWN && board->board[4][1].color == WHITE) {
+        cols[1] = -1;
         return;
       }
     } else {
-      if (board->board[3][1].piece == PAWN && board->board[3][1].color == WHITE) {
-        cols[1] = 1;
+      if (board->board[3][1].piece == PAWN && board->board[3][1].color == BLACK) {
+        cols[1] = -1;
         return;
       }
     }
@@ -293,7 +293,7 @@ void colsMayEnPassant(int cols[8], const Chessboard * board) {
         return;
       }
     } else {
-      if (board->board[6][1].piece == PAWN && board->board[6][1].color == WHITE) {
+      if (board->board[3][6].piece == PAWN && board->board[3][6].color == WHITE) {
         cols[6] = 1;
         return;
       }
@@ -301,18 +301,18 @@ void colsMayEnPassant(int cols[8], const Chessboard * board) {
   }
   int c = lastMove.toCol;
   if (lastMove.toRow == 3) {
-    if (board->board[4][c - 1].piece == PAWN && board->board[4][c - 1].color == BLACK) {
+    if (board->board[3][c - 1].piece == PAWN && board->board[3][c - 1].color == BLACK) {
       cols[c - 1] = 1;
     }
-    if (board->board[4][c + 1].piece == PAWN && board->board[4][c + 1].color == BLACK) {
-      cols[c + 1] = 1;
+    if (board->board[3][c + 1].piece == PAWN && board->board[3][c + 1].color == BLACK) {
+      cols[c + 1] = -1;
     }
   } else {
-    if (board->board[3][c - 1].piece == PAWN && board->board[3][c - 1].color == WHITE) {
+    if (board->board[4][c - 1].piece == PAWN && board->board[4][c - 1].color == WHITE) {
       cols[c - 1] = 1;
     }
-    if (board->board[3][c + 1].piece == PAWN && board->board[3][c + 1].color == WHITE) {
-      cols[c + 1] = 1;
+    if (board->board[4][c + 1].piece == PAWN && board->board[4][c + 1].color == WHITE) {
+      cols[c + 1] = -1;
     }
   }
 }
@@ -611,6 +611,16 @@ int generatePawnMoves(const Chessboard* board, int row, int col, Move* moves) {
   if (toRow >= 0 && toRow < 8 && toCol >= 0 && toCol < 8 && board->board[toRow][toCol].piece != EMPTY && board->board[toRow][toCol].piece != board->board[row][col].color) {
     addMove(moves, &numMoves, row, col, toRow, toCol);
   }
+
+  int cols_maybe_enpassant[8] = {0};
+  colsMayEnPassant(cols_maybe_enpassant, board);
+  for (int j = 0; j < 8; ++j) {
+    if (cols_maybe_enpassant[j]) {
+      addMove(moves, &numMoves, isWhite ? 3 : 4, j, isWhite ? 4 : 3, j + cols_maybe_enpassant[j]);
+      break;
+    }
+  }
+
 
   return numMoves;
 }
@@ -1575,7 +1585,7 @@ Move string2move(const char * x, int n, const Chessboard * board, Color sideToMo
   return M;
 }
 
-void setup_board(Chessboard * board, SEXP x, SEXP y, SEXP Start, Color sideToMove) {
+void setup_board(Chessboard * board, SEXP x, SEXP y, SEXP Start, Color sideToMove, SEXP LastMove) {
   const int start = asInteger(Start);
   if (start == 0) {
     blankBoard(board);
@@ -1583,6 +1593,9 @@ void setup_board(Chessboard * board, SEXP x, SEXP y, SEXP Start, Color sideToMov
     board->BlackMayCastle = 0;
   } else if (start == 1) {
     startingPosition(board);
+    if (!length(x) && !length(y) && !length(LastMove)) {
+      return; // just the starting position
+    }
   } else {
     error("Invalid start.");
   }
@@ -1669,16 +1682,64 @@ void setup_board(Chessboard * board, SEXP x, SEXP y, SEXP Start, Color sideToMov
       error("Could not determine piece from string '%s'.", xi);
     }
   }
+  if (!isString(LastMove)) {
+    error("LastMove was type '%s' not STRSXP.", type2char(TYPEOF(LastMove)));
+  }
+  int len_last_move = length(STRING_ELT(LastMove, 0));
+  if (len_last_move != 4 && len_last_move != 5) {
+    error("len_last_move = %d, but must be length 4 or 5. e.g. Qa1a7", len_last_move);
+  }
+  const char * last_move = CHAR(STRING_ELT(LastMove, 0));
+  if (len_last_move == 4) {
+    board->lastMove.toPiece = PAWN;
+    if (last_move[0] < 'a' || last_move[0] > 'h') {
+      error("last_move[0] was not in a-h");
+    }
+    board->lastMove.fromCol = last_move[0] - 'a';
+    if (last_move[1] < '1' || last_move[1] > '8') {
+      error("last_move[1] was not in 1-8");
+    }
+    board->lastMove.fromRow = last_move[1] - '1';
+    if (last_move[2] < 'a' || last_move[2] > 'h') {
+      error("last_move[2] was not in a-h");
+    }
+    board->lastMove.toCol = last_move[2] - 'a';
+    if (last_move[3] < '1' || last_move[3] > '8') {
+      error("last_move[3] was not in 1-8");
+    }
+    board->lastMove.toRow = last_move[3] - '1';
+
+  } else {
+    board->lastMove.toPiece = string2Piece(last_move);
+    if (last_move[1] < 'a' || last_move[1] > 'h') {
+      error("last_move[1] was not in a-h");
+    }
+    board->lastMove.fromCol = last_move[1] - 'a';
+    if (last_move[2] < '1' || last_move[2] > '8') {
+      error("last_move[2] was not in 1-8");
+    }
+    board->lastMove.fromRow = last_move[2] - '1';
+    if (last_move[3] < 'a' || last_move[3] > 'h') {
+      error("last_move[3] was not in a-h");
+    }
+    board->lastMove.toCol = last_move[3] - 'a';
+    if (last_move[4] < '1' || last_move[4] > '8') {
+      error("last_move[4] was not in 1-8");
+    }
+    board->lastMove.toRow = last_move[4] - '1';
+  }
+
+
   if (isntValidBoard(board, sideToMove)) {
     error("isntValidBoard[%d]", isntValidBoard(board, sideToMove));
   }
 }
 
-SEXP C_isCheckmate(SEXP x, SEXP y, SEXP Start, SEXP WhiteToMove) {
+SEXP C_isCheckmate(SEXP x, SEXP y, SEXP Start, SEXP WhiteToMove, SEXP LastMove) {
   bool white_to_move = asLogical(WhiteToMove);
   Color sideToMove = white_to_move ? WHITE : BLACK;
   Chessboard Board;
-  setup_board(&Board, x, y, Start, sideToMove);
+  setup_board(&Board, x, y, Start, sideToMove, LastMove);
   return ScalarLogical(isCheckmate(&Board, sideToMove));
 }
 
@@ -1749,6 +1810,21 @@ bool isDraw(const Chessboard * board, Color sideToMove) {
     return true;
   }
   return false;
+}
+
+SEXP C_canEnPassant(SEXP x, SEXP y, SEXP Start, SEXP WhiteToMove, SEXP LastMove) {
+  bool white_to_move = asLogical(WhiteToMove);
+  Color sideToMove = white_to_move ? WHITE : BLACK;
+  Chessboard Board;
+  setup_board(&Board, x, y, Start, sideToMove, LastMove);
+  int cols_to_enpassant[8] = {0};
+  colsMayEnPassant(cols_to_enpassant, &Board);
+  for (int j = 0; j < 8; ++j) {
+    if (cols_to_enpassant[j]) {
+      return(ScalarInteger(cols_to_enpassant[j] * (j + 1)));
+    }
+  }
+  return ScalarInteger(0);
 }
 
 
