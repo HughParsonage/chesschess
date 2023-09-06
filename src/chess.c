@@ -549,6 +549,16 @@ bool isKingInCheck(const Chessboard* board, Color kingColor) {
   return false;
 }
 
+bool wouldKingBeInCheck(const Chessboard * board, Color kingColor, int fromRow, int fromCol, int toRow, int toCol) {
+  Square P = board->board[fromRow][fromCol];
+  Chessboard tempBoard;
+  memcpy(&tempBoard, board, sizeof(Chessboard));
+  tempBoard.board[fromRow][fromCol].piece = EMPTY;
+  tempBoard.board[toRow][toCol].piece = P.piece;
+  tempBoard.board[toRow][toCol].color = P.color;
+  return isKingInCheck(&tempBoard, kingColor);
+}
+
 // A piece is 'maybe pinned' if it is pinned though might still be able to move
 // (to capture the pinning piece for example), called 'partially pinned' by wiki
 bool maybePinned(const Chessboard * board, int row, int col) {
@@ -789,8 +799,42 @@ int generateRookMoves(const Chessboard* board, int row, int col, Move* moves) {
   int numMoves = 0;
   bool dirs_avbl[4] = {1, 1, 1, 1}; // N, S, E, W
   int dirs_oppos[4] = {1, 0, 3, 2};
+  int toRows[4] = {1, -1, 0, 0};
+  int toCols[4] = {0, 0, 1, -1};
+
   const Color c = board->board[row][col].color;
   bool maybe_pinned = maybePinned(board, row, col);
+  bool in_check = isKingInCheck(board, c);
+
+  if (in_check) {
+    for (int dir = 0; dir < 4; ++dir) {
+      for (int d = 1; d < 8; ++d) {
+        if (!dirs_avbl[dir]) {
+          break;
+        }
+        int toRow = row + d * toRows[dir];
+        int toCol = col + d * toCols[dir];
+
+        if (toRow < 0 || toRow >= 8 || toCol < 0 || toCol >= 8) {
+          dirs_avbl[dir] = 0;
+          break;
+        }
+        if (board->board[toRow][toCol].piece != EMPTY) {
+          dirs_avbl[dir] = 0;
+          if (board->board[toRow][toCol].color == c) {
+            break;
+          }
+        }
+        if (wouldKingBeInCheck(board, c, row, col, toRow, toCol)) {
+          continue;
+        } else {
+          addMove(moves, &numMoves, row, col, toRow, toCol);
+        }
+      }
+    }
+    return numMoves;
+  }
+
   if (maybe_pinned) {
     // if the king and the rook lie on the same diagonal then it is totally pinned
     unsigned int itsKing = (c == WHITE) ? board->WhiteKing : board->BlackKing;
@@ -812,6 +856,9 @@ int generateRookMoves(const Chessboard* board, int row, int col, Move* moves) {
       }
       int toRow = row + (dir == 3) - 2 * (dir == 4);
       int toCol = col + (dir == 0) - 2 * (dir == 1);
+      if (toRow < 0 || toRow >= 8 || toCol < 0 || toCol >= 8) {
+        continue;
+      }
       if (board->board[toRow][toCol].piece != EMPTY && board->board[toRow][toCol].color == c) {
         dirs_avbl[dir] = 0;
         continue;
@@ -832,9 +879,8 @@ int generateRookMoves(const Chessboard* board, int row, int col, Move* moves) {
           dirs_avbl[dir] = 0;
         }
       } else {
-        if (isKingInCheck(&tempBoard, c)) {
-          dirs_avbl[dir] = 0;
-          dirs_avbl[dirs_oppos[dir]] = 0;
+        if (!isKingInCheck(&tempBoard, c)) {
+          addMove(moves, &numMoves, row, col, toRow, toCol);
         }
       }
     }
@@ -846,15 +892,19 @@ int generateRookMoves(const Chessboard* board, int row, int col, Move* moves) {
       if (col + d >= 8) {
         break;
       }
-      if (board->board[row][col + d].piece == EMPTY) {
+      int toCol = col + d;
+      int toRow = row;
+      Chessboard tempBoard;
+      memcpy(&tempBoard, board, sizeof(Chessboard));
+      tempBoard.board[toRow][toCol].piece = ROOK;
+      tempBoard.board[toRow][toCol].color = c;
+      tempBoard.board[row][col].piece = EMPTY;
+      if (!isKingInCheck(&tempBoard, c)) {
         addMove(moves, &numMoves, row, col, row, col + d);
-        continue;
       }
-      if (board->board[row][col + d].color == c) {
+      if (board->board[row][toCol].piece != EMPTY) {
         break;
       }
-      addMove(moves, &numMoves, row, col, row, col + d);
-      break;
     }
   }
   if (dirs_avbl[1]) {
@@ -862,15 +912,19 @@ int generateRookMoves(const Chessboard* board, int row, int col, Move* moves) {
       if (col - d < 0) {
         break;
       }
-      if (board->board[row][col - d].piece == EMPTY) {
-        addMove(moves, &numMoves, row, col, row, col - d);
-        continue;
+      int toCol = col - d;
+      int toRow = row;
+      Chessboard tempBoard;
+      memcpy(&tempBoard, board, sizeof(Chessboard));
+      tempBoard.board[toRow][toCol].piece = ROOK;
+      tempBoard.board[toRow][toCol].color = c;
+      tempBoard.board[row][col].piece = EMPTY;
+      if (!isKingInCheck(&tempBoard, c)) {
+        addMove(moves, &numMoves, row, col, row, col + d);
       }
-      if (board->board[row][col - d].color == c) {
+      if (board->board[row][toCol].piece != EMPTY) {
         break;
       }
-      addMove(moves, &numMoves, row, col, row, col - d);
-      break;
     }
   }
   if (dirs_avbl[2]) {
@@ -878,15 +932,19 @@ int generateRookMoves(const Chessboard* board, int row, int col, Move* moves) {
       if (row + d >= 8) {
         break;
       }
-      if (board->board[row + d][col].piece == EMPTY) {
-        addMove(moves, &numMoves, row, col, row + d, col);
-        continue;
+      int toCol = col;
+      int toRow = row + d;
+      Chessboard tempBoard;
+      memcpy(&tempBoard, board, sizeof(Chessboard));
+      tempBoard.board[toRow][toCol].piece = ROOK;
+      tempBoard.board[toRow][toCol].color = c;
+      tempBoard.board[row][col].piece = EMPTY;
+      if (!isKingInCheck(&tempBoard, c)) {
+        addMove(moves, &numMoves, row, col, row, col + d);
       }
-      if (board->board[row + d][col].color == c) {
+      if (board->board[row][toCol].piece != EMPTY) {
         break;
       }
-      addMove(moves, &numMoves, row, col, row + d, col);
-      break;
     }
   }
   if (dirs_avbl[3]) {
@@ -894,19 +952,23 @@ int generateRookMoves(const Chessboard* board, int row, int col, Move* moves) {
       if (row - d < 0) {
         break;
       }
-      if (board->board[row - d][col].piece == EMPTY) {
-        addMove(moves, &numMoves, row, col, row - d, col);
-        continue;
+      int toCol = col;
+      int toRow = row - d;
+      Chessboard tempBoard;
+      memcpy(&tempBoard, board, sizeof(Chessboard));
+      tempBoard.board[toRow][toCol].piece = ROOK;
+      tempBoard.board[toRow][toCol].color = c;
+      tempBoard.board[row][col].piece = EMPTY;
+      if (!isKingInCheck(&tempBoard, c)) {
+        addMove(moves, &numMoves, row, col, row, col + d);
       }
-      if (board->board[row - d][col].color == c) {
+      if (board->board[row][toCol].piece != EMPTY) {
         break;
       }
-      addMove(moves, &numMoves, row, col, row - d, col);
-      break;
     }
   }
 
-
+  Rprintf("numMoves = %d\n", numMoves);
   return numMoves;
 }
 

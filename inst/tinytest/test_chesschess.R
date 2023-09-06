@@ -22,6 +22,12 @@ expect_true(is_checkmate(c("Qf8", "Qa8", "Qa5", "Ka4"),
                          white_to_move = FALSE,
                          last_move = "Qf1f8"))
 
+expect_false(is_checkmate(c("Kc1", "Rd2", "Rf3"),
+                          c("Kc8", "Bd4", "Be4", "Bf4", "Bg4", "Rf1"),
+                          white_to_move = TRUE,
+                          start = 0L,
+                          last_move = "Rf2f1"))
+
 expect_equal(enpassant(c("e5", "Ke1"), c("f5", "Ke7"), start = 0L, last_move = "f7f5"),
              5)
 expect_equal(enpassant(c("e5", "Ke1"), c("f5", "Ke7", "d5"), start = 0L, last_move = "f7f5"),
