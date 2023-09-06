@@ -637,13 +637,10 @@ int generatePawnMoves(const Chessboard* board, int row, int col, Move* moves) {
 
 int generateKnightMoves(const Chessboard* board, int row, int col, Move* moves) {
   int numMoves = 0;
-  if (maybePinned(board, row, col)) {
-    // A pinned knight cannot move
-    return 0;
-  }
+  const Color c = board->board[row][col].color;
 
   // think of a clockface 1,2 4,5, 7,8, 10,11 are the moves in general
-  const int hrs[8] = {1, 2, 4, 5, 7, 8, 10, 11};
+  // const int hrs[8] = {1, 2, 4, 5, 7, 8, 10, 11};
   const int toRows[8] = {1, 2, 2, 1, -1, -2, -2, -1};
   const int toCols[8] = {2, 1, -1, -2, -2, -1, 1, 2};
   for (int h = 0; h < 8; ++h) {
@@ -653,7 +650,11 @@ int generateKnightMoves(const Chessboard* board, int row, int col, Move* moves) 
       continue; // outside the board
     }
     // same color => not possible
-    if (board->board[toRow][toCol].color == board->board[row][col].color) {
+    if (board->board[toRow][toCol].color == board->board[row][col].color &&
+        board->board[toRow][toCol].piece != EMPTY) {
+      continue;
+    }
+    if (wouldKingBeInCheck(board, c, row, col, toRow, toCol)) {
       continue;
     }
     addMove(moves, &numMoves, row, col, toRow, toCol);
