@@ -58,7 +58,7 @@ expect_equal(enpassant(c("a5", "Ke1"), c("f5", "Ke7", "b5"), start = 0L, last_mo
 expect_equal(enpassant(c("h5", "Ke1"), c("f5", "Ke7", "g5"), start = 0L, last_move = "g7g5"),
              -8)
 
-
+expect_equal(chesschess:::game2outcome("e4", "e5"), 0L)
 
 
 

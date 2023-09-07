@@ -249,8 +249,8 @@ void initialize_Game(Game * G) {
   startingPosition(&(G->Board));
   G->sideToMove = WHITE;
   memset(G->Moves, 0, LONG_GAME * sizeof(Move));
-  memset(G->black_material, 0, LONG_GAME * sizeof(Material));
-  memset(G->white_material, 0, LONG_GAME * sizeof(Material));
+  memset(G->black_material, 0, LONG_GAME * sizeof(uint16_t));
+  memset(G->white_material, 0, LONG_GAME * sizeof(uint16_t));
   Material M;
   determine_material(&M, &(G->Board), WHITE);
   G->white_material[0] = total_material(&M);
@@ -1502,7 +1502,7 @@ void validate_algebraic_string(const char * x) {
     j = 1;
   } else {
     // pawn cannot move to outer rows
-    if (x[2] <= '1' || x[2] >= '8') {
+    if (x[1] <= '1' || x[1] >= '8') {
       error("Invalid row for pawn move.");
     }
   }
@@ -1542,34 +1542,34 @@ Move string2move(const char * x, int n, const Chessboard * board, Color sideToMo
   // unsigned int p = string2p(x);
   switch(n) {
   case 2: {
-    M.toCol = x[1] - '1';
-    M.toRow = x[0] - 'a';
+    M.toRow = x[1] - '1';
+    M.toCol = x[0] - 'a';
     M.fromCol = M.toCol;
     M.toPiece = PAWN;
     // pawn has simply moved
     if (sideToMove == WHITE) {
-      if (board->board[M.toCol][M.toRow - 1].piece == PAWN &&
-          board->board[M.toCol][M.toRow - 1].color == WHITE) {
+      if (board->board[M.toRow - 1][M.toCol].piece == PAWN &&
+          board->board[M.toRow - 1][M.toCol].color == WHITE) {
         M.fromRow = M.toRow - 1;
         return M;
       }
-      if (board->board[M.toCol][M.toRow - 2].piece == PAWN &&
-          board->board[M.toCol][M.toRow - 2].color == WHITE &&
-          board->board[M.toCol][M.toRow - 1].piece == EMPTY) {
+      if (board->board[M.toRow - 2][M.toCol].piece == PAWN &&
+          board->board[M.toRow - 2][M.toCol].color == WHITE &&
+          board->board[M.toRow - 1][M.toCol].piece == EMPTY) {
         M.fromRow = M.toRow - 2;
         return M;
       }
       error("String '%s' appears to be a pawn move but not valid.", x);
 
     } else {
-      if (board->board[M.toCol][M.toRow + 1].piece == PAWN &&
-          board->board[M.toCol][M.toRow + 1].color == WHITE) {
+      if (board->board[M.toRow + 1][M.toCol].piece == PAWN &&
+          board->board[M.toRow + 1][M.toCol].color == BLACK) {
         M.fromRow = M.toRow + 1;
         return M;
       }
-      if (board->board[M.toCol][M.toRow + 2].piece == PAWN &&
-          board->board[M.toCol][M.toRow + 2].color == WHITE &&
-          board->board[M.toCol][M.toRow + 1].piece == EMPTY) {
+      if (board->board[M.toRow + 2][M.toCol].piece == PAWN &&
+          board->board[M.toRow + 2][M.toCol].color == BLACK &&
+          board->board[M.toRow + 1][M.toCol].piece == EMPTY) {
         M.fromRow = M.toRow + 2;
         return M;
       }
@@ -1583,8 +1583,8 @@ Move string2move(const char * x, int n, const Chessboard * board, Color sideToMo
         error("String '%s' was length 3 but did not have expected terminal char", x);
       }
       M.toPiece = PAWN;
-      M.toCol = x[0] - '1';
-      M.toRow = x[1] - 'a';
+      M.toRow = x[0] - '1';
+      M.toCol = x[1] - 'a';
       M.fromCol = M.toCol;
       if (x[2] == '+' || x[2] == '#') {
         // check king in Check
@@ -1678,6 +1678,85 @@ Move string2move(const char * x, int n, const Chessboard * board, Color sideToMo
   }
 
   return M;
+}
+
+void apply_move2game(Game * G, Move M, Color sideToMove) {
+  unsigned int move = G->move;
+  ++move;
+  if (move >= LONG_GAME) {
+    error("move = %d >= LONG_GAME = %d", move, LONG_GAME);
+  }
+  switch(M.toPiece) {
+  case KING:
+    if (sideToMove == WHITE) {
+      G->Board.WhiteKing = rowcol2p(M.toRow, M.toCol);
+      if (G->whiteLostCastlingRights == LONG_GAME) {
+        G->whiteLostCastlingRights = move;
+      }
+      G->Board.lastMove = M;
+      G->Board.board[M.fromRow][M.fromCol].piece = EMPTY;
+      G->Board.board[M.toRow][M.toCol].piece = KING;
+      G->Board.board[M.toRow][M.toCol].color = WHITE;
+      G->Moves[move][0] = M;
+    } else {
+      G->Board.BlackKing = rowcol2p(M.toRow, M.toCol);
+      if (G->blackLostCastlingRights == LONG_GAME) {
+        G->blackLostCastlingRights = move;
+      }
+      G->Board.lastMove = M;
+      G->Board.board[M.fromRow][M.fromCol].piece = EMPTY;
+      G->Board.board[M.toRow][M.toCol].piece = KING;
+      G->Board.board[M.toRow][M.toCol].color = BLACK;
+      G->Moves[move][1] = M;
+    }
+    break;
+  default:
+    if (sideToMove == WHITE) {
+      G->Board.lastMove = M;
+      bool is_enpassant =
+        M.toPiece == PAWN &&
+        M.toRow == 6 &&
+        M.toCol != M.fromCol &&
+        G->Board.board[M.toRow][M.toCol].piece == EMPTY &&
+        G->Board.board[M.fromRow][M.toCol].piece == PAWN &&
+        G->Board.board[M.fromRow][M.toCol].color == BLACK;
+      G->Board.board[M.fromRow][M.fromCol].piece = EMPTY;
+      G->Board.board[M.toRow][M.toCol].piece = M.toPiece;
+      G->Board.board[M.toRow][M.toCol].color = WHITE;
+      if (is_enpassant) {
+        G->Board.board[M.fromRow][M.toCol].piece = EMPTY;
+      }
+      G->Moves[move][0] = M;
+
+
+    } else {
+      G->Board.lastMove = M;
+      bool is_enpassant =
+        M.toPiece == PAWN &&
+        M.toRow == 4 &&
+        M.toCol != M.fromCol &&
+        G->Board.board[M.toRow][M.toCol].piece == EMPTY &&
+        G->Board.board[M.fromRow][M.toCol].piece == PAWN &&
+        G->Board.board[M.fromRow][M.toCol].color == WHITE;
+      G->Board.board[M.fromRow][M.fromCol].piece = EMPTY;
+      G->Board.board[M.toRow][M.toCol].piece = M.toPiece;
+      G->Board.board[M.toRow][M.toCol].color = BLACK;
+      if (is_enpassant) {
+        G->Board.board[M.fromRow][M.toCol].piece = EMPTY;
+      }
+      G->Moves[move][1] = M;
+    }
+  }
+  Material Mat;
+  determine_material(&Mat, &(G->Board), WHITE);
+  G->white_material[move] = total_material(&Mat);
+  determine_material(&Mat, &(G->Board), BLACK);
+  G->black_material[move] = total_material(&Mat);
+  if (M.toPiece == PAWN) {
+    G->last_pawn_move = move;
+  }
+  G->sideToMove = OPPCOLOR;
+  G->move += (sideToMove == BLACK);
 }
 
 void setup_board(Chessboard * board, SEXP x, SEXP y, SEXP Start, Color sideToMove, SEXP LastMove) {
@@ -1919,6 +1998,36 @@ SEXP C_canEnPassant(SEXP x, SEXP y, SEXP Start, SEXP WhiteToMove, SEXP LastMove)
       return(ScalarInteger(cols_to_enpassant[j] * (j + 1)));
     }
   }
+  return ScalarInteger(0);
+}
+
+SEXP C_game2outcome(SEXP x, SEXP y) {
+  Chessboard Board;
+  setup_board(&Board, R_NilValue, R_NilValue, ScalarInteger(1), WHITE, R_NilValue);
+  Game G;
+  initialize_Game(&G);
+  int n = length(x);
+  if (n != length(y) && (n - 1) != length(y)) {
+    error("Lengths of x and y do not agree. length(x) = %d, length(y) = %d", length(x), length(y));
+  }
+  const SEXP * xp = STRING_PTR(x);
+  const SEXP * yp = STRING_PTR(y);
+  for (int i = 0; i < n; ++i) {
+    Move M_i = string2move(CHAR(xp[i]), length(xp[i]), &(G.Board), WHITE);
+    apply_move2game(&G, M_i, WHITE);
+    if (i < length(y)) {
+      M_i = string2move(CHAR(yp[i]), length(yp[i]), &(G.Board), BLACK);
+      apply_move2game(&G, M_i, BLACK);
+    }
+
+  }
+  if (isCheckmate(&(G.Board), WHITE)) {
+    return ScalarInteger(1);
+  }
+  if (isCheckmate(&(G.Board), BLACK)) {
+    return ScalarInteger(-1);
+  }
+
   return ScalarInteger(0);
 }
 
