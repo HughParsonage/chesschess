@@ -666,7 +666,7 @@ int generateKnightMoves(const Chessboard* board, int row, int col, Move* moves) 
   for (int h = 0; h < 8; ++h) {
     int toRow = row + toRows[h];
     int toCol = col + toCols[h];
-    if (toRow < 0 || toRow >= 8 || toCol < 0 || toRow >= 8) {
+    if (toRow < 0 || toRow >= 8 || toCol < 0 || toCol >= 8) {
       continue; // outside the board
     }
     // same color => not possible
