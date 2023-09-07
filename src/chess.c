@@ -5,6 +5,8 @@
 
 #define OPPCOLOR (sideToMove == WHITE ? BLACK : WHITE)
 
+const char * abcdefgh_ = "abcdefgh";
+
 typedef enum {
   EMPTY,
   PAWN,
@@ -49,7 +51,7 @@ unsigned int pos_hash(Chessboard * B) {
   for (int r = 0; r < 8; ++r) {
     for (int c = 0; c < 8; ++c) {
       Piece PP = B->board[r][c].piece;
-      bool is_white = B->board[r][c].color;
+      // bool is_white = B->board[r][c].color;
       o += 2 * (PP);
     }
   }
@@ -455,29 +457,28 @@ bool canPieceAttackSquare(const Chessboard* board, int pieceRow, int pieceCol, i
     break;
   }
 
-  case ROOK: {
+  case ROOK:
     // Check if the target square is in the same row or column as the piece
     if (toRow == pieceRow || toCol == pieceCol) {
-    // Determine the direction of movement along the row or column
-    int rowDirection = (toRow > pieceRow) ? 1 : (toRow < pieceRow) ? -1 : 0;
-    int colDirection = (toCol > pieceCol) ? 1 : (toCol < pieceCol) ? -1 : 0;
+      // Determine the direction of movement along the row or column
+      int rowDirection = (toRow > pieceRow) ? 1 : (toRow < pieceRow) ? -1 : 0;
+      int colDirection = (toCol > pieceCol) ? 1 : (toCol < pieceCol) ? -1 : 0;
 
-    int row = pieceRow + rowDirection;
-    int col = pieceCol + colDirection;
+      int row = pieceRow + rowDirection;
+      int col = pieceCol + colDirection;
 
-    // Check if there are any pieces obstructing the path
-    while (row != toRow || col != toCol) {
-      if (board->board[row][col].piece != EMPTY) {
-        return false; // Obstruction in the path
+      // Check if there are any pieces obstructing the path
+      while (row != toRow || col != toCol) {
+        if (board->board[row][col].piece != EMPTY) {
+          return false; // Obstruction in the path
+        }
+        row += rowDirection;
+        col += colDirection;
       }
-      row += rowDirection;
-      col += colDirection;
-    }
 
-    return true; // No obstructions, the rook can attack the target square
-  }
+      return true; // No obstructions, the rook can attack the target square
+    }
     break;
-  }
 
   case QUEEN: {
     // Check if the target square is on the same diagonal, row, or column as the piece
@@ -549,13 +550,17 @@ bool isKingInCheck(const Chessboard* board, Color kingColor) {
   return false;
 }
 
-bool wouldKingBeInCheck(const Chessboard * board, Color kingColor, int fromRow, int fromCol, int toRow, int toCol) {
+bool wouldKingBeInCheck(const Chessboard * board, Color kingColor, int fromRow, int fromCol, int toRow, int toCol, bool enpassant) {
   Square P = board->board[fromRow][fromCol];
   Chessboard tempBoard;
   memcpy(&tempBoard, board, sizeof(Chessboard));
   tempBoard.board[fromRow][fromCol].piece = EMPTY;
   tempBoard.board[toRow][toCol].piece = P.piece;
   tempBoard.board[toRow][toCol].color = P.color;
+  // enpassant is unusual in that the captured pawn is not on the destination square
+  if (enpassant) {
+    tempBoard.board[fromRow][toCol].piece = EMPTY;
+  }
   return isKingInCheck(&tempBoard, kingColor);
 }
 
@@ -587,23 +592,28 @@ void addMove(Move* moves, int* numMoves, int sourceRow, int sourceCol, int toRow
 int generatePawnMoves(const Chessboard* board, int row, int col, Move* moves) {
   int numMoves = 0;
 
+  Color C = board->board[row][col].color;
+
   // Determine the color of the pawn
-  bool isWhite = (board->board[row][col].color == WHITE);
+  bool isWhite = (C == WHITE);
 
   // Determine the direction of movement based on the pawn's color
-  int direction = isWhite ? -1 : 1;
+  int direction = isWhite ? 1 : -1;
 
   // Check if the pawn can move one square forward
   int toRow = row + direction;
   int toCol = col;
-  if (toRow >= 0 && toRow < 8 && toCol >= 0 && toCol < 8 && board->board[toRow][toCol].piece == EMPTY) {
-    addMove(moves, &numMoves, row, col, toRow, toCol);
 
-    // Check if the pawn can move two squares forward from the starting position
-    if ((isWhite && row == 6) || (!isWhite && row == 1)) {
-      toRow = row + (2 * direction);
-      if (toRow >= 0 && toRow < 8 && board->board[toRow][toCol].piece == EMPTY) {
-        addMove(moves, &numMoves, row, col, toRow, toCol);
+  if (toRow >= 0 && toRow < 8 && toCol >= 0 && toCol < 8 && board->board[toRow][toCol].piece == EMPTY) {
+    if (!(wouldKingBeInCheck(board, C, row, col, toRow, toCol, false))) {
+      addMove(moves, &numMoves, row, col, toRow, toCol);
+
+      // Check if the pawn can move two squares forward from the starting position
+      if ((isWhite && row == 6) || (!isWhite && row == 1)) {
+        toRow = row + (2 * direction);
+        if (toRow >= 0 && toRow < 8 && board->board[toRow][toCol].piece == EMPTY) {
+          addMove(moves, &numMoves, row, col, toRow, toCol);
+        }
       }
     }
   }
@@ -612,21 +622,31 @@ int generatePawnMoves(const Chessboard* board, int row, int col, Move* moves) {
   toRow = row + direction;
   toCol = col - 1;
   if (toRow >= 0 && toRow < 8 && toCol >= 0 && toCol < 8 && board->board[toRow][toCol].piece != EMPTY && board->board[toRow][toCol].color != board->board[row][col].color) {
-    addMove(moves, &numMoves, row, col, toRow, toCol);
+    if (!wouldKingBeInCheck(board, C, row, col, toRow, toCol, false)) {
+      addMove(moves, &numMoves, row, col, toRow, toCol);
+    }
   }
 
   // Check if the pawn can capture diagonally to the right
   toRow = row + direction;
   toCol = col + 1;
-  if (toRow >= 0 && toRow < 8 && toCol >= 0 && toCol < 8 && board->board[toRow][toCol].piece != EMPTY && board->board[toRow][toCol].piece != board->board[row][col].color) {
-    addMove(moves, &numMoves, row, col, toRow, toCol);
+  if (toRow >= 0 && toRow < 8 && toCol >= 0 && toCol < 8 &&
+      board->board[toRow][toCol].piece != EMPTY &&
+      board->board[toRow][toCol].color != board->board[row][col].color) {
+    if (!wouldKingBeInCheck(board, C, row, col, toRow, toCol, false)) {
+      addMove(moves, &numMoves, row, col, toRow, toCol);
+    }
   }
 
   int cols_maybe_enpassant[8] = {0};
   colsMayEnPassant(cols_maybe_enpassant, board);
   for (int j = 0; j < 8; ++j) {
     if (cols_maybe_enpassant[j]) {
-      addMove(moves, &numMoves, isWhite ? 3 : 4, j, isWhite ? 4 : 3, j + cols_maybe_enpassant[j]);
+      Rprintf("ep ");
+      if (!wouldKingBeInCheck(board, C, row, col, toRow, toCol, true)) {
+        Rprintf("ok ");
+        addMove(moves, &numMoves, isWhite ? 3 : 4, j, isWhite ? 4 : 3, j + cols_maybe_enpassant[j]);
+      }
       break;
     }
   }
@@ -654,7 +674,7 @@ int generateKnightMoves(const Chessboard* board, int row, int col, Move* moves) 
         board->board[toRow][toCol].piece != EMPTY) {
       continue;
     }
-    if (wouldKingBeInCheck(board, c, row, col, toRow, toCol)) {
+    if (wouldKingBeInCheck(board, c, row, col, toRow, toCol, false)) {
       continue;
     }
     addMove(moves, &numMoves, row, col, toRow, toCol);
@@ -826,7 +846,7 @@ int generateRookMoves(const Chessboard* board, int row, int col, Move* moves) {
             break;
           }
         }
-        if (wouldKingBeInCheck(board, c, row, col, toRow, toCol)) {
+        if (wouldKingBeInCheck(board, c, row, col, toRow, toCol, false)) {
           continue;
         } else {
           addMove(moves, &numMoves, row, col, toRow, toCol);
@@ -843,7 +863,6 @@ int generateRookMoves(const Chessboard* board, int row, int col, Move* moves) {
       return 0;
     }
     unsigned int K_row = itsKing >> 3;
-    unsigned int K_col = itsKing & 7;
     if (K_row == row) {
       dirs_avbl[0] = 0;
       dirs_avbl[1] = 0;
@@ -969,7 +988,6 @@ int generateRookMoves(const Chessboard* board, int row, int col, Move* moves) {
     }
   }
 
-  Rprintf("numMoves = %d\n", numMoves);
   return numMoves;
 }
 
@@ -984,7 +1002,7 @@ int generateQueenMoves(const Chessboard* board, int row, int col, Move* moves) {
   int toRows[8] = {1, 1, 0, -1, -1, -1, 0, 1};
 
   if (maybe_pinned) {
-    unsigned int K_row = p2row(c == WHITE ? board->WhiteKing : board->BlackKing);
+    // unsigned int K_row = p2row(c == WHITE ? board->WhiteKing : board->BlackKing);
     for (int dir = 0; dir < 8; ++dir) {
       if (!dirs_avbl[dir]) {
         continue;
@@ -1268,6 +1286,15 @@ bool isCheckmate(const Chessboard* board, Color sideToMove) {
   // Generate all possible moves for the side to move
   Move possibleMoves[MAX_MOVES];
   int numPossibleMoves = generateMoves(board, sideToMove, possibleMoves);
+  for (int j = 0; j < numPossibleMoves; ++j) {
+    // print_the_piece(possibleMoves[j].toPiece);
+    // const char * letters = "abcdefgh";
+    // Rprintf(": %c%d->%c%d\n",
+    //         letters[possibleMoves[j].fromCol], possibleMoves[j].fromRow + 1,
+    //         letters[possibleMoves[j].toCol], possibleMoves[j].toRow + 1);
+
+  }
+
   return numPossibleMoves == 0 && isKingInCheck(board, sideToMove);
 }
 
@@ -1512,7 +1539,7 @@ void validate_algebraic_string(const char * x) {
 Move string2move(const char * x, int n, const Chessboard * board, Color sideToMove) {
   Move M;
   validate_algebraic_string(x);
-  unsigned int p = string2p(x);
+  // unsigned int p = string2p(x);
   switch(n) {
   case 2: {
     M.toCol = x[1] - '1';
@@ -1584,13 +1611,13 @@ Move string2move(const char * x, int n, const Chessboard * board, Color sideToMo
 
 
           if (board->board[M.toCol][M.toRow - 1].piece == PAWN &&
-              board->board[M.toCol][M.toRow - 1].piece == sideToMove)  {
+              board->board[M.toCol][M.toRow - 1].color == sideToMove)  {
             tempBoard.board[M.toCol][M.toRow - 1].piece = EMPTY;
             if (isKingInCheck(&tempBoard, OPPCOLOR)) {
               king_in_check = true;
             }
           } else if (board->board[M.toCol][M.toRow - 2].piece == PAWN &&
-            board->board[M.toCol][M.toRow - 2].piece == sideToMove &&
+            board->board[M.toCol][M.toRow - 2].color == sideToMove &&
             board->board[M.toCol][M.toRow - 1].piece == EMPTY)  {
             tempBoard.board[M.toCol][M.toRow - 2].piece = PAWN;
             if (isKingInCheck(&tempBoard, OPPCOLOR)) {
@@ -1637,7 +1664,7 @@ Move string2move(const char * x, int n, const Chessboard * board, Color sideToMo
 
     } else {
       // piece
-      Piece P = string2Piece(x);
+      // Piece P = string2Piece(x);
       unsigned int p = string2p(x);
       M.toRow = p2row(p);
       M.toCol = p2col(p);

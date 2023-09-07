@@ -43,6 +43,9 @@ expect_false(is_checkmate(c("Ka1", "Na4"),
 expect_true(is_checkmate(c("Ka1", "Na4"),
                          c("Bc3", "Bc4", "Kc1", "Ra7"),
                          last_move = "Bb4c3"))
+expect_true(is_checkmate(c("Kf7", "Bg7"), c("Kh8", "Nh7"), white_to_move = FALSE, last_move = "Bh6h7"))
+expect_true(is_checkmate(c("Ka1", "Rd8"), c("Kg8", "f7", "g7", "h7"), white_to_move = FALSE, last_move = "Rd7d8"))
+
 
 expect_equal(enpassant(c("e5", "Ke1"), c("f5", "Ke7"), start = 0L, last_move = "f7f5"),
              5)
@@ -54,3 +57,8 @@ expect_equal(enpassant(c("a5", "Ke1"), c("f5", "Ke7", "b5"), start = 0L, last_mo
              1)
 expect_equal(enpassant(c("h5", "Ke1"), c("f5", "Ke7", "g5"), start = 0L, last_move = "g7g5"),
              -8)
+
+
+
+
+
