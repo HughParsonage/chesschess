@@ -58,7 +58,21 @@ expect_equal(enpassant(c("a5", "Ke1"), c("f5", "Ke7", "b5"), start = 0L, last_mo
 expect_equal(enpassant(c("h5", "Ke1"), c("f5", "Ke7", "g5"), start = 0L, last_move = "g7g5"),
              -8)
 
-expect_equal(chesschess:::game2outcome("e4", "e5"), 0L)
+g2o <- chesschess:::game2outcome
+expect_equal(g2o("e4", "e5"), 0L)
+expect_equal(g2o(c("f3", "g4"), c("e6", "Qh4")), -1, info = "fools mate")
+
+expect_equal(g2o(c("e4", "Bc4", "Qf3", "Qf7"),
+                 c("e5", "Nc6", "d6")),
+             1L,
+             info = "scholars mate")
+
+# Castling rights
+expect_equal(g2o(c("e4", "Nf3", "Bb5", "O-O"),
+                 c("e5", "Nc6", "Nf6")),
+             0L)
+expect_error(g2o(c("e4", "Nf3", "Bb5", "O-O-O"),
+                 c("e5", "Nc6", "Nf6")))
 
 
 

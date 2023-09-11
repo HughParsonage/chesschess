@@ -121,6 +121,11 @@ void print_the_piece(Piece P) {
   if (P == ROOK) Rprintf("ROOK");
 }
 
+const char * strWHITE = "WHITE";
+const char * strBLACK = "BLACK";
+
+#define color2str (sideToMove == WHITE ? strWHITE : strBLACK)
+
 
 void print_piece(Chessboard * board, int row, int col) {
   print_the_piece(board->board[row][col].piece);
@@ -642,9 +647,7 @@ int generatePawnMoves(const Chessboard* board, int row, int col, Move* moves) {
   colsMayEnPassant(cols_maybe_enpassant, board);
   for (int j = 0; j < 8; ++j) {
     if (cols_maybe_enpassant[j]) {
-      Rprintf("ep ");
       if (!wouldKingBeInCheck(board, C, row, col, toRow, toCol, true)) {
-        Rprintf("ok ");
         addMove(moves, &numMoves, isWhite ? 3 : 4, j, isWhite ? 4 : 3, j + cols_maybe_enpassant[j]);
       }
       break;
@@ -1364,20 +1367,26 @@ int isntValidBoard(const Chessboard * board, Color colorToMove) {
 // positions only, not algebraic notation
 unsigned int string2p(const char * x) {
   const char * letters = "abcdefgh";
+
   if (isupper(x[0])) {
+    if (strlen(x) < 3) {
+      error("strlen(x = %s) < 3", x);
+    }
     for (int c = 0; c < 8; ++c) {
       if (x[1] == letters[c]) {
-        return rowcol2p(x[2] - '0' - 1, c);
+
+        unsigned int oooo =  rowcol2p(x[2] - '1', c);
+        return oooo;
       }
     }
   } else {
     for (int c = 0; c < 8; ++c) {
       if (x[0] == letters[c]) {
-        return rowcol2p(x[1] - '0' - 1, c);
+        return rowcol2p(x[1] - '1', c);
       }
     }
   }
-  error("Could not determine position from string '%s'", x);
+  error("(string2p)Could not determine position from string '%s'", x);
 }
 
 Piece string2Piece(const char * x) {
@@ -1438,9 +1447,10 @@ unsigned int PawnBoard2p(const Color C, const Chessboard * board, unsigned int t
 unsigned int PieceBoard2p(const Piece P, const Color C, const Chessboard * board, unsigned int to_p) {
 
   int n = 0;
-  uint16_t o[8] = {0};
+  uint16_t o[62] = {0};
+
   for (int r = 0; r < 8; ++r) {
-    for (int c = 0; r < 8; ++c) {
+    for (int c = 0; c < 8; ++c) {
       if (board->board[r][c].piece == P &&
           board->board[r][c].color == C) {
         o[n++] = rowcol2p(r, c);
@@ -1471,9 +1481,9 @@ unsigned int PieceBoard2p(const Piece P, const Color C, const Chessboard * board
 
     }
   }
+  // error("Unable to determine Piece2Board.");
 
-
-return 55;
+  return 55;
 
 }
 
@@ -1538,8 +1548,27 @@ void validate_algebraic_string(const char * x) {
 
 Move string2move(const char * x, int n, const Chessboard * board, Color sideToMove) {
   Move M;
+  if (x[0] == 'O' && x[1] == '-' && x[2] == 'O') {
+    M.fromRow = (sideToMove == WHITE) ? 0 : 7;
+    M.fromCol = 4;
+    M.toRow = M.fromRow;
+    M.toCol = (n == 3) ? 7 : 0;
+
+    if (board->board[M.fromRow][M.fromCol].piece != KING) {
+      error("move was '%s' for %s but King not in starting position", x, color2str);
+    }
+    if (board->board[M.toRow][M.toCol].piece != ROOK) {
+      error("move was '%s' for %s but Rook not in starting position", x, color2str);
+    }
+
+    M.toPiece = KING;
+    return M;
+  }
+
   validate_algebraic_string(x);
   // unsigned int p = string2p(x);
+
+
   switch(n) {
   case 2: {
     M.toRow = x[1] - '1';
@@ -1661,16 +1690,16 @@ Move string2move(const char * x, int n, const Chessboard * board, Color sideToMo
         error("String '%s' appears to be a pawn move but not valid.", x);
       }
 
-
     } else {
       // piece
-      // Piece P = string2Piece(x);
+      Piece P = string2Piece(x);
       unsigned int p = string2p(x);
       M.toRow = p2row(p);
       M.toCol = p2col(p);
-      // p = PieceBoard2p(P, sideToMove, board);
-      M.fromRow = p2row(p);
-      M.fromCol = p2col(p);
+      unsigned int q = PieceBoard2p(P, sideToMove, board, p);
+      M.fromRow = p2row(q);
+      M.fromCol = p2col(q);
+      M.toPiece = string2Piece(x);
 
 
 
@@ -1680,8 +1709,142 @@ Move string2move(const char * x, int n, const Chessboard * board, Color sideToMo
   return M;
 }
 
+static void hasRookMoved(int moves[2], Game * G, Color sideToMove) {
+  moves[0] = 0;
+  moves[1] = 0;
+  for (int m = 1; m < (G->move); ++m) {
+    if (moves[0] && moves[1]) {
+      break;
+    }
+    if (G->Moves[m][sideToMove == BLACK].toPiece == ROOK) {
+      if (moves[0] == 0 && G->Moves[m][sideToMove == BLACK].fromCol == 0) {
+        moves[0] = m;
+      }
+      if (moves[1] == 0 && G->Moves[m][sideToMove == BLACK].fromCol == 7) {
+        moves[1] = m;
+      }
+    }
+  }
+}
+
+void verify_castling(Game * G, bool queenside, Color sideToMove) {
+  int c_castle = canCastle(&(G->Board), sideToMove);
+  int rook_moves[2] = {0};
+  hasRookMoved(rook_moves, G, sideToMove);
+
+  if (sideToMove == WHITE) {
+    if (rook_moves[!queenside]) {
+      error("On move %d castling was attempted, but WHITE's ROOK moved on moved %d",
+            G->move + 1, rook_moves[!queenside]);
+    }
+    if (G->whiteLostCastlingRights != LONG_GAME) {
+      error("On move %d castling was attempted, but WHITE lost castling rights on move %d",
+            G->move + 1, G->whiteLostCastlingRights);
+    }
+
+    if (c_castle == 3) {
+      return;
+    }
+    if (isKingInCheck(&(G->Board), WHITE)) {
+      error("On move %d castling was attempted, but king is in check.", G->move + 1);
+    }
+
+    if (queenside) {
+      if (G->Board.board[0][0].piece != ROOK || G->Board.board[0][0].color != WHITE) {
+        error("On move %d castling was attempted, but WHITE rook not on square a1.", G->move + 1);
+      }
+      for (int r = 1; r < 4; ++r) {
+        if (G->Board.board[0][r].piece != EMPTY) {
+          error("On move %d castling was attempted, but piece exists on square %c1.", G->move + 1, abcdefgh_[r]);
+        }
+      }
+      for (int r = 2; r < 3; ++r) {
+        if (wouldKingBeInCheck(&(G->Board), WHITE, 0, 4, 0, r, false)) {
+          error("On move %d castling was attempted, but king would be in check exists on square %c1.", G->move + 1, abcdefgh_[r]);
+        }
+      }
+    } else {
+      if (G->Board.board[0][7].piece != ROOK || G->Board.board[0][7].color != WHITE) {
+        error("On move %d castling was attempted, but WHITE rook not on square a1.", G->move + 1);
+      }
+      for (int r = 5; r < 7; ++r) {
+        if (G->Board.board[0][r].piece != EMPTY) {
+          error("On move %d castling was attempted, but piece exists on square %c1.", G->move + 1, abcdefgh_[r]);
+        }
+      }
+      for (int r = 5; r < 7; ++r) {
+        if (wouldKingBeInCheck(&(G->Board), WHITE, 0, 4, 0, r, false)) {
+          error("On move %d castling was attempted, but king would be in check exists on square %c1.", G->move + 1, abcdefgh_[r]);
+        }
+      }
+    }
+  } else {
+    if (rook_moves[!queenside]) {
+      error("On move %d castling was attempted, but BLACK's ROOK moved on moved %d",
+            G->move + 1, rook_moves[!queenside]);
+    }
+    if (G->blackLostCastlingRights != LONG_GAME) {
+      error("On move %d castling was attempted, but BLACK lost castling rights on move %d",
+            G->blackLostCastlingRights, G->move + 1);
+    }
+    if (c_castle == 3) {
+      return;
+    }
+    if (queenside) {
+      if (G->Board.board[7][0].piece != ROOK || G->Board.board[7][0].color != WHITE) {
+        error("On move %d castling was attempted, but BLACK rook not on square a8.", G->move + 1);
+      }
+      for (int r = 1; r < 4; ++r) {
+        if (G->Board.board[7][r].piece != EMPTY) {
+          error("On move %d castling was attempted, but piece exists on square %c8.", G->move + 1, abcdefgh_[r]);
+        }
+      }
+      for (int r = 2; r < 3; ++r) {
+        if (wouldKingBeInCheck(&(G->Board), WHITE, 7, 4, 7, r, false)) {
+          error("On move %d castling was attempted, but king would be in check exists on square %c8.", G->move + 1, abcdefgh_[r]);
+        }
+      }
+    } else {
+      if (G->Board.board[7][7].piece != ROOK || G->Board.board[7][7].color != WHITE) {
+        error("On move %d castling was attempted, but BLACK rook not on square h8.", G->move + 1);
+      }
+      for (int r = 5; r < 7; ++r) {
+        if (G->Board.board[7][r].piece != EMPTY) {
+          error("On move %d castling was attempted, but piece exists on square %c8.", G->move + 1, abcdefgh_[r]);
+        }
+      }
+      for (int r = 5; r < 7; ++r) {
+        if (wouldKingBeInCheck(&(G->Board), WHITE, 7, 4, 7, r, false)) {
+          error("On move %d castling was attempted, but king would be in check exists on square %c8.", G->move + 1, abcdefgh_[r]);
+        }
+      }
+    }
+  }
+}
+
+void apply_castling(Game * G, bool queenside, Color sideToMove) {
+  verify_castling(G, queenside, sideToMove);
+  switch(sideToMove) {
+  case WHITE:
+    if (queenside) {
+
+    } else {
+
+    }
+    break;
+  case BLACK:
+    if (queenside) {
+
+    } else {
+
+    }
+    break;
+  }
+}
+
 void apply_move2game(Game * G, Move M, Color sideToMove) {
   unsigned int move = G->move;
+
   ++move;
   if (move >= LONG_GAME) {
     error("move = %d >= LONG_GAME = %d", move, LONG_GAME);
@@ -1720,6 +1883,7 @@ void apply_move2game(Game * G, Move M, Color sideToMove) {
         G->Board.board[M.toRow][M.toCol].piece == EMPTY &&
         G->Board.board[M.fromRow][M.toCol].piece == PAWN &&
         G->Board.board[M.fromRow][M.toCol].color == BLACK;
+
       G->Board.board[M.fromRow][M.fromCol].piece = EMPTY;
       G->Board.board[M.toRow][M.toCol].piece = M.toPiece;
       G->Board.board[M.toRow][M.toCol].color = WHITE;
@@ -2002,8 +2166,6 @@ SEXP C_canEnPassant(SEXP x, SEXP y, SEXP Start, SEXP WhiteToMove, SEXP LastMove)
 }
 
 SEXP C_game2outcome(SEXP x, SEXP y) {
-  Chessboard Board;
-  setup_board(&Board, R_NilValue, R_NilValue, ScalarInteger(1), WHITE, R_NilValue);
   Game G;
   initialize_Game(&G);
   int n = length(x);
@@ -2013,7 +2175,14 @@ SEXP C_game2outcome(SEXP x, SEXP y) {
   const SEXP * xp = STRING_PTR(x);
   const SEXP * yp = STRING_PTR(y);
   for (int i = 0; i < n; ++i) {
-    Move M_i = string2move(CHAR(xp[i]), length(xp[i]), &(G.Board), WHITE);
+    const char * xpi = CHAR(xp[i]);
+    int npi = length(xp[i]);
+    if (xpi[0] == 'O' && xpi[1] == '-') {
+      apply_castling(&G, npi > 3, WHITE);
+      continue;
+    }
+
+    Move M_i = string2move(xpi, npi, &(G.Board), WHITE);
     apply_move2game(&G, M_i, WHITE);
     if (i < length(y)) {
       M_i = string2move(CHAR(yp[i]), length(yp[i]), &(G.Board), BLACK);
@@ -2022,10 +2191,11 @@ SEXP C_game2outcome(SEXP x, SEXP y) {
 
   }
   if (isCheckmate(&(G.Board), WHITE)) {
-    return ScalarInteger(1);
-  }
-  if (isCheckmate(&(G.Board), BLACK)) {
     return ScalarInteger(-1);
+  }
+
+  if (isCheckmate(&(G.Board), BLACK)) {
+    return ScalarInteger(1);
   }
 
   return ScalarInteger(0);
