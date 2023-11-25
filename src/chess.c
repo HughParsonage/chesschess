@@ -1511,9 +1511,13 @@ void validate_algebraic_string(const char * x) {
     }
     j = 1;
   } else {
-    // pawn cannot move to outer rows
-    if (x[1] <= '1' || x[1] >= '8') {
-      error("Invalid row for pawn move.");
+    if (is_abcdefgh(x[1])) {
+      if (abs(x[0] - x[1]) > 1) {
+        error("Pawn move %x appears to be a movement beyond range: %c -> %c", x, x[0], x[1]);
+      }
+    } else if (x[1] <= '1' || x[1] >= '8') {
+      // pawn cannot move to outer rows
+      error("Invalid row for pawn move: %s", x);
     }
   }
   if (!is_algebraic_position(x[j++])) {
@@ -1607,13 +1611,23 @@ Move string2move(const char * x, int n, const Chessboard * board, Color sideToMo
   }
   case 3:
     if (!isupper(x[0])) {
+      // possibly capture
+      if (is_abcdefgh(x[0]) && is_abcdefgh(x[1]) && is_1to8(x[2])) {
+        Rprintf("\n %s \n", x);
+        M.toPiece = PAWN;
+        M.fromCol = x[0] - 'a';
+        M.toCol = x[1] - 'a';
+        M.toRow = x[2] - '0';
+        M.fromRow = sideToMove == WHITE ? M.toRow - 1 : M.toRow + 1;
+        return M;
+      }
       // should be a pawn something (check, mate, blunder etc)
       if (!is_terminal_char(x[2]))  {
         error("String '%s' was length 3 but did not have expected terminal char", x);
       }
       M.toPiece = PAWN;
-      M.toRow = x[0] - '1';
-      M.toCol = x[1] - 'a';
+      M.toRow = x[1] - '1';
+      M.toCol = x[0] - 'a';
       M.fromCol = M.toCol;
       if (x[2] == '+' || x[2] == '#') {
         // check king in Check
@@ -1655,9 +1669,6 @@ Move string2move(const char * x, int n, const Chessboard * board, Color sideToMo
           } else {
             error("Unexpected move '%s'.", x);
           }
-
-
-
         }
       }
 
@@ -1824,22 +1835,34 @@ void verify_castling(Game * G, bool queenside, Color sideToMove) {
 
 void apply_castling(Game * G, bool queenside, Color sideToMove) {
   verify_castling(G, queenside, sideToMove);
-  switch(sideToMove) {
-  case WHITE:
-    if (queenside) {
-
-    } else {
-
-    }
-    break;
-  case BLACK:
-    if (queenside) {
-
-    } else {
-
-    }
-    break;
+  const bool isWhite = sideToMove == WHITE;
+  int KtoCol = queenside ? 2 : 6;
+  int KtoRow = isWhite ? 0 : 7;
+  int RtoCol = queenside ? 3 : 5;
+  int RtoRow = KtoRow;
+  unsigned int m = (G->move) + 1;
+  if (isWhite) {
+    G->Board.WhiteKing = rowcol2p(KtoRow, KtoCol);
+    G->whiteLostCastlingRights = m;
+    G->white_material[m] = G->white_material[m - 1];
+  } else {
+    G->Board.BlackKing = rowcol2p(KtoRow, KtoCol);
+    G->blackLostCastlingRights = m;
+    G->black_material[m] = G->black_material[m - 1];
   }
+  G->Moves[m][!isWhite].fromCol = 3;
+  G->Moves[m][!isWhite].fromRow = KtoRow;
+  G->Moves[m][!isWhite].toCol = KtoCol;
+  G->Moves[m][!isWhite].toRow = KtoRow;
+
+  G->Board.board[KtoRow][4].piece = EMPTY;
+  G->Board.board[KtoRow][queenside ? 0 : 7].piece = EMPTY; // rook
+  G->Board.board[KtoRow][KtoCol].piece = KING;
+  G->Board.board[KtoRow][KtoCol].color = sideToMove;
+  G->Board.board[RtoRow][RtoCol].piece = ROOK;
+  G->Board.board[RtoRow][RtoCol].color = sideToMove;
+
+
 }
 
 void apply_move2game(Game * G, Move M, Color sideToMove) {
@@ -2165,9 +2188,65 @@ SEXP C_canEnPassant(SEXP x, SEXP y, SEXP Start, SEXP WhiteToMove, SEXP LastMove)
   return ScalarInteger(0);
 }
 
-SEXP C_game2outcome(SEXP x, SEXP y) {
-  Game G;
-  initialize_Game(&G);
+void print_board(const Chessboard * board) {
+  for (int r = 7; r >= 0; --r) {
+    Rprintf("\n");
+    for (int c = 0; c < 8; ++c) {
+      if (board->board[r][c].color == WHITE) {
+      switch(board->board[r][c].piece) {
+      case EMPTY:
+        Rprintf("    ");
+        break;
+      case KING:
+        Rprintf(" \u2654 ");
+        break;
+      case QUEEN:
+        Rprintf(" \u2655 ");
+        break;
+      case ROOK:
+        Rprintf(" \u2656 ");
+        break;
+      case BISHOP:
+        Rprintf(" \u2657 ");
+        break;
+      case KNIGHT:
+        Rprintf(" \u2658 ");
+        break;
+      case PAWN:
+        Rprintf(" \u2659 ");
+        break;
+      }
+      } else {
+        switch(board->board[r][c].piece) {
+        case EMPTY:
+          Rprintf("    ");
+          break;
+        case KING:
+          Rprintf(" \u265A ");
+          break;
+        case QUEEN:
+          Rprintf(" \u265B ");
+          break;
+        case ROOK:
+          Rprintf(" \u265C ");
+          break;
+        case BISHOP:
+          Rprintf(" \u265D ");
+          break;
+        case KNIGHT:
+          Rprintf(" \u265E ");
+          break;
+        case PAWN:
+          Rprintf(" \u265F ");
+          break;
+        }
+      }
+    }
+  }
+}
+
+void sexp2game(Game * G, SEXP x, SEXP y) {
+  initialize_Game(G);
   int n = length(x);
   if (n != length(y) && (n - 1) != length(y)) {
     error("Lengths of x and y do not agree. length(x) = %d, length(y) = %d", length(x), length(y));
@@ -2178,30 +2257,69 @@ SEXP C_game2outcome(SEXP x, SEXP y) {
     const char * xpi = CHAR(xp[i]);
     int npi = length(xp[i]);
     if (xpi[0] == 'O' && xpi[1] == '-') {
-      apply_castling(&G, npi > 3, WHITE);
+      apply_castling(G, npi > 3, WHITE);
       continue;
     }
 
-    Move M_i = string2move(xpi, npi, &(G.Board), WHITE);
-    apply_move2game(&G, M_i, WHITE);
+    Move M_i = string2move(xpi, npi, &(G->Board), WHITE);
+    apply_move2game(G, M_i, WHITE);
     if (i < length(y)) {
-      M_i = string2move(CHAR(yp[i]), length(yp[i]), &(G.Board), BLACK);
-      apply_move2game(&G, M_i, BLACK);
+      npi = length(yp[i]);
+      const char * ypi = CHAR(yp[i]);
+      if (ypi[0] == 'O' && ypi[1] == '-') {
+        apply_castling(G, npi > 3, BLACK);
+        continue;
+      }
+      M_i = string2move(CHAR(yp[i]), length(yp[i]), &(G->Board), BLACK);
+      apply_move2game(G, M_i, BLACK);
     }
 
   }
-  if (isCheckmate(&(G.Board), WHITE)) {
-    return ScalarInteger(-1);
-  }
-
-  if (isCheckmate(&(G.Board), BLACK)) {
-    return ScalarInteger(1);
-  }
-
-  return ScalarInteger(0);
 }
 
 
+SEXP C_game2outcome(SEXP x, SEXP y) {
+  Game * G;
+  sexp2game(G, x, y);
+  if (isCheckmate(&(G->Board), WHITE)) {
+    return ScalarInteger(-1);
+  }
+
+  if (isCheckmate(&(G->Board), BLACK)) {
+    return ScalarInteger(1);
+  }
+  print_board(&(G->Board));
+  Rprintf("\nKing in Check: %d %d", isKingInCheck(&(G->Board), WHITE), isKingInCheck(&(G->Board), BLACK));
+  return ScalarInteger(0);
+}
+
+bool checkmate_in_n(Game * G, int n) {
+  if (n <= 0) {
+    return isCheckmate(&(G->Board), G->sideToMove);
+  }
+  Move Moves[MAX_MOVES];
+  int num_moves = generateMoves(&(G->Board), G->sideToMove, Moves);
+
+  if (num_moves == 0) {
+    return false;
+  }
+  for (int m = 0; m < num_moves; ++m) {
+    Game G2 = *G;
+    apply_move2game(G, Moves[m], G->sideToMove);
+    if (checkmate_in_n(G, n - 1)) {
+      return true;
+    }
+    G = &G2;
+  }
+  return false;
+}
+
+SEXP C_CheckmateInN(SEXP x, SEXP y, SEXP nn) {
+  const int n = asInteger(nn);
+  Game G;
+  sexp2game(&G, x, y);
+  return ScalarLogical(checkmate_in_n(&G, n));
+}
 
 
 

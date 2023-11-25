@@ -10,5 +10,12 @@
 #' @export
 
 is_checkmate <- function(x, y, start = 0L, white_to_move = TRUE, last_move = ifelse(white_to_move, y[1], x[1])) {
+  x <- gsub("x", "", x)
+  y <- gsub("x", "", y)
   .Call("C_isCheckmate", x, y, start, white_to_move, last_move, PACKAGE = packageName())
+}
+
+
+checkmate_in_n <- function(x, y, n = 1L) {
+  .Call("C_CheckmateInN", x, y, n, PACKAGE = packageName())
 }

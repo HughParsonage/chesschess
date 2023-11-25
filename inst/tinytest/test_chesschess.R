@@ -28,6 +28,8 @@ expect_false(is_checkmate(c("Kc1", "Rd2", "Rf3"),
                           start = 0L,
                           last_move = "Rf2f1"))
 
+
+
 expect_false(is_checkmate(c("Kd1"),
                          c("Bb3", "Bc3", "Ke3"),
                          white_to_move = TRUE,
@@ -74,5 +76,7 @@ expect_equal(g2o(c("e4", "Nf3", "Bb5", "O-O"),
 expect_error(g2o(c("e4", "Nf3", "Bb5", "O-O-O"),
                  c("e5", "Nc6", "Nf6")))
 
-
+expect_equal(g2o(c("e4", "Qh5", "Bc4", "Qf3", "Nc3", "Qd1", "Nf3", "Nd4", "Ne2", "Bb3", "Nd4", "c3", "d4", "Be3", "fxe3", "Kf1", "Be6", "h3", "Qb3"),
+                         c("e5", "Nc6", "g6", "Qe7", "Nd4", "c6", "Bg7", "exd4", "d5", "dxe4", "Bxd4", "Bb6", "exd3", "Bxe3", "Qxe3", "Be6", "fxe6", "Nh6", "O-O")),
+             1L)
 
